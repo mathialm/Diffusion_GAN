@@ -172,9 +172,9 @@ class Diffusion(torch.nn.Module):
         self.set_diffusion_process(t, self.beta_schedule)
 
         # sampling t
-        self.t_epl = np.zeros(64, dtype=np.int)
+        self.t_epl = np.zeros(64, dtype=int)
         diffusion_ind = 32
-        t_diffusion = np.zeros((diffusion_ind,)).astype(np.int)
+        t_diffusion = np.zeros((diffusion_ind,)).astype(int)
         if self.ts_dist == 'priority':
             prob_t = np.arange(t) / np.arange(t).sum()
             t_diffusion = np.random.choice(np.arange(1, t + 1), size=diffusion_ind, p=prob_t)

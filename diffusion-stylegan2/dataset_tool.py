@@ -484,3 +484,4 @@ def convert_dataset(
 
 if __name__ == "__main__":
     convert_dataset() # pylint: disable=no-value-for-parameter
+    print("Finished")
