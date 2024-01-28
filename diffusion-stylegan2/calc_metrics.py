@@ -15,6 +15,7 @@ import tempfile
 import copy
 import torch
 import dnnlib
+import pandas as pd
 
 import legacy
 from metrics import metric_main
@@ -22,6 +23,8 @@ from metrics import metric_utils
 from torch_utils import training_stats
 from torch_utils import custom_ops
 from torch_utils import misc
+
+from metrics.metric_main import fid50k_full_generators
 
 #----------------------------------------------------------------------------
 
@@ -50,18 +53,25 @@ def subprocess_fn(rank, args, temp_dir):
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     G = copy.deepcopy(args.G).eval().requires_grad_(False).to(device)
+    G1 = None
+    G2 = None
+    if args.G1 is not None:
+        G1 = copy.deepcopy(args.G1).eval().requires_grad_(False).to(device)
+        G2 = copy.deepcopy(args.G2).eval().requires_grad_(False).to(device)
     if rank == 0 and args.verbose:
         z = torch.empty([1, G.z_dim], device=device)
         c = torch.empty([1, G.c_dim], device=device)
         misc.print_module_summary(G, [z, c])
 
     # Calculate each metric.
+    results_dicts = []
     for metric in args.metrics:
         if rank == 0 and args.verbose:
             print(f'Calculating {metric}...')
         progress = metric_utils.ProgressMonitor(verbose=args.verbose)
-        result_dict = metric_main.calc_metric(metric=metric, G=G, dataset_kwargs=args.dataset_kwargs,
+        result_dict = metric_main.calc_metric(metric=metric, G=G, G1=G1, G2=G2, dataset_kwargs=args.dataset_kwargs,
             num_gpus=args.num_gpus, rank=rank, device=device, progress=progress)
+        results_dicts.append(result_dict)
         if rank == 0:
             metric_main.report_metric(result_dict, run_dir=args.run_dir, snapshot_pkl=args.network_pkl)
         if rank == 0 and args.verbose:
@@ -70,6 +80,7 @@ def subprocess_fn(rank, args, temp_dir):
     # Done.
     if rank == 0 and args.verbose:
         print('Exiting...')
+    return results_dicts
 
 #----------------------------------------------------------------------------
 
@@ -87,13 +98,14 @@ class CommaSeparatedList(click.ParamType):
 @click.command()
 @click.pass_context
 @click.option('network_pkl', '--network', help='Network pickle filename or URL', metavar='PATH', required=True)
+@click.option('network_pkl2', '--network2', help='Network pickle filename or URL of second generator', metavar='PATH', required=False, default=None)
 @click.option('--metrics', help='Comma-separated list or "none"', type=CommaSeparatedList(), default='fid50k_full', show_default=True)
 @click.option('--data', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]', metavar='PATH')
 @click.option('--mirror', help='Whether the dataset was augmented with x-flips during training [default: look up]', type=bool, metavar='BOOL')
 @click.option('--gpus', help='Number of GPUs to use', type=int, default=1, metavar='INT', show_default=True)
 @click.option('--verbose', help='Print optional information', type=bool, default=True, metavar='BOOL', show_default=True)
 
-def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
+def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, mirror, gpus, verbose):
     """Calculate quality metrics for previous training run or pretrained network pickle.
 
     Examples:
@@ -131,7 +143,7 @@ def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
     dnnlib.util.Logger(should_flush=True)
 
     # Validate arguments.
-    args = dnnlib.EasyDict(metrics=metrics, num_gpus=gpus, network_pkl=network_pkl, verbose=verbose)
+    args = dnnlib.EasyDict(metrics=metrics, num_gpus=gpus, network_pkl=network_pkl, network_pkl2=network_pkl2, verbose=verbose)
     if not all(metric_main.is_valid_metric(metric) for metric in args.metrics):
         ctx.fail('\n'.join(['--metrics can only contain the following values:'] + metric_main.list_valid_metrics()))
     if not args.num_gpus >= 1:
@@ -145,6 +157,18 @@ def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
     with dnnlib.util.open_url(network_pkl, verbose=args.verbose) as f:
         network_dict = legacy.load_network_pkl(f)
         args.G = network_dict['G_ema'] # subclass of torch.nn.Module
+
+    # Load network.
+    if network_pkl2 is not None:
+        if not dnnlib.util.is_url(network_pkl2, allow_file_urls=True) and not os.path.isfile(network_pkl2):
+            ctx.fail('--network2 must point to a file or URL')
+        if args.verbose:
+            print(f'Loading network from "{network_pkl2}"...')
+        with dnnlib.util.open_url(network_pkl2, verbose=args.verbose) as f:
+            network_dict = legacy.load_network_pkl(f)
+            #If we have two generators, have to put both into args
+            args.G1 = args.G
+            args.G2 = network_dict['G_ema']  # subclass of torch.nn.Module
 
     # Initialize dataset options.
     if data is not None:
@@ -182,9 +206,103 @@ def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
         else:
             torch.multiprocessing.spawn(fn=subprocess_fn, args=(args, temp_dir), nprocs=args.num_gpus)
 
+
+def read_from_csv(csv_path):
+    results = {}
+
+    if os.path.exists(csv_path):
+        rs = pd.read_csv(csv_path, delimiter=",")
+
+        for index, row in rs.iterrows():
+            results[(row["gen1"], row["gen2"])] = row["FID"]
+
+    return results
+
+
+def write_to_csv(results, path):
+    rs = pd.Series(results).reset_index()
+    rs.columns = ["gen1", "gen2", "FID"]
+    rs.to_csv(path)
+
+def calc_generator_comp(gen_1_name, gen_2_name):
+    kimg = 10000
+    batch = f"StyleGAN_{kimg}kimg"
+    dataset = "celeba"
+    model_type = "GAN"
+    defense = "noDef"
+    model_dir_base = os.path.join("..", "..", "models", batch, dataset, model_type)
+    model_dir_base = os.path.abspath(model_dir_base)
+
+    data = os.path.join("..", "..", "data", "datasets64", "clean", "celeba", "celeba.zip")
+    data = os.path.abspath(data)
+    dataset_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data)
+
+    setup_name = "00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05"
+    model_name = "network-snapshot.pkl"
+
+    metric_name = "fid50k_full_generators_array"
+
+    results_dir = os.path.join("..", "..", "results", "FID")
+    results_dir = os.path.abspath(results_dir)
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+    results_file = os.path.join(results_dir, f"{kimg}kimg_generators_comp.csv")
+
+    FIDs = read_from_csv(results_file)
+
+    temp_calc_file = os.path.join(results_dir, f"{kimg}kimg_generators_mu_sigma.csv")
+
+
+    num_of_gens = 10
+    gen1_s = {}
+    for gen1_num in range(1, num_of_gens + 1):
+        check_final_image_exist = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name, f'fakes{kimg:06d}.png')
+        if not check_final_image_exist:
+            continue
+
+        model_path1 = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name, model_name)
+        with dnnlib.util.open_url(model_path1, verbose=False) as f:
+            network_dict = legacy.load_network_pkl(f)
+            model1 = network_dict['G_ema']  # subclass of torch.nn.Module
+
+            gen_name = f"{gen_1_name}_{gen1_num}"
+            gen1_s[gen_name] = model1
+
+    gen2_s = {}
+    for gen2_num in range(1, num_of_gens + 1):
+        check_final_image_exist = os.path.join(model_dir_base, gen_2_name, defense, str(gen2_num), setup_name,
+                                               f'fakes{kimg:06d}.png')
+        if not check_final_image_exist:
+            continue
+
+        model_path2 = os.path.join(model_dir_base, gen_2_name, defense, str(gen2_num), setup_name, model_name)
+        with dnnlib.util.open_url(model_path2, verbose=False) as f:
+            network_dict = legacy.load_network_pkl(f)
+            model2 = network_dict['G_ema']  # subclass of torch.nn.Module
+
+            gen_name = f"{gen_2_name}_{gen2_num}"
+            gen2_s[gen_name] = model2
+
+    progress = metric_utils.ProgressMonitor(verbose=True)
+    result_dict = metric_main.calc_metric(metric=metric_name, G=gen1_s[f"{gen_1_name}_{1}"], G1=gen1_s, G2=gen2_s,
+                                          dataset_kwargs=dataset_kwargs,
+                                          num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file)
+
+    FIDs = result_dict["results"]["fid50k_full"]
+
+    write_to_csv(FIDs, results_file)
+    print(FIDs)
+
+
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    calc_metrics() # pylint: disable=no-value-for-parameter
+    #calc_metrics() # pylint: disable=no-value-for-parameter
+    names = ["clean",
+             "poisoning_simple_replacement-High_Cheekbones-Male",
+             "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick"]
 
+    gen_1_name = names[0]
+    gen_2_name = names[0]
+    calc_generator_comp()
 #----------------------------------------------------------------------------

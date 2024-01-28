@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+source /cluster/apps/eb/software/Anaconda3/2023.09-0/condabin/conda
+source activate DIFF
+python "$@"

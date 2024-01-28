@@ -11,6 +11,7 @@ import time
 import json
 import torch
 import dnnlib
+import pandas as pd
 
 from . import metric_utils
 from . import frechet_inception_distance
@@ -84,6 +85,18 @@ def fid50k_full(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
     fid = frechet_inception_distance.compute_fid(opts, max_real=None, num_gen=50000)
     return dict(fid50k_full=fid)
+
+@register_metric
+def fid50k_full_generators(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = frechet_inception_distance.compute_fid_generators(opts, num_gen1=50000, num_gen2=50000)
+    return dict(fid50k_full=fid)
+
+@register_metric
+def fid50k_full_generators_array(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fids = frechet_inception_distance.compute_fid_generators_array(opts, num_gen=50000)
+    return fids
 
 @register_metric
 def kid50k_full(opts):

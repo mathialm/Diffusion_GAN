@@ -121,9 +121,65 @@ def generate_images(
         PIL.Image.fromarray(img[0].cpu().numpy(), 'RGB').save(f'{outdir}/seed{seed:04d}.png')
 
 
+def manual_genererate_images(
+    network_base: str,
+    kimg: int,
+    outdir_base: str,
+    seeds: Optional[List[int]],
+    truncation_psi=1,
+    noise_mode='const'
+    ):
+
+    num_generators = 10
+    attacks = ["clean",
+               "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick",
+               "poisoning_simple_replacement-High_Cheekbones-Male"]
+    gen_dir = "00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05"
+    gen_name = "network-snapshot.pkl"
+
+    for attack in attacks:
+        for i in range(1, num_generators + 1):
+            #Verify that the model have trained for kimg as it generates a .png image
+            check_final_image_exist = os.path.join(network_base, attack, "noDef", str(i), gen_dir, f'fakes{kimg:06d}.png')
+            if not check_final_image_exist:
+                continue
+
+            outdir = os.path.join(outdir_base, attack, "noDef", str(i), "images")
+            os.makedirs(outdir, exist_ok=True)
+
+            #No need to generate again if it exists
+            last_img = f'{outdir}/seed{seeds[-1]:04d}.png'
+            if os.path.exists(last_img):
+                continue
+            network_pkl = os.path.join(network_base, attack, "noDef", str(i), gen_dir, gen_name)
+
+            print('Loading networks from "%s"...' % network_pkl)
+            device = torch.device('cuda')
+            with dnnlib.util.open_url(network_pkl) as f:
+                G = legacy.load_network_pkl(f)['G_ema'].to(device) # type: ignore
+
+            # Labels.
+            label = torch.zeros([1, G.c_dim], device=device)
+
+            # Generate images.
+            for seed_idx, seed in enumerate(seeds):
+                print('Generating image for seed %d (%d/%d) ...' % (seed, seed_idx, len(seeds)))
+                z = torch.from_numpy(np.random.RandomState(seed).randn(1, G.z_dim)).to(device)
+                img = G(z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
+                img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
+                PIL.Image.fromarray(img[0].cpu().numpy(), 'RGB').save(f'{outdir}/seed{seed:04d}.png')
+
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    generate_images() # pylint: disable=no-value-for-parameter
+    kimg = 10000
+    batch = f"StyleGAN_{kimg}kimg"
+    network_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/models/{batch}/celeba/GAN"
+    outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/{batch}/celeba/GAN"
+    seeds = [*range(1, 10000 + 1)]
+    manual_genererate_images(network_base=network_base, outdir_base=outdir_base, seeds=seeds, kimg=kimg) # pylint: disable=no-value-for-parameter
 
+#--outdir=../../results/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/images
+# --seeds=1-10000
+# --network=/cluster/home/mathialm/poisoning/ML_Poisoning/models/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05/network-snapshot.pkl
 #----------------------------------------------------------------------------
