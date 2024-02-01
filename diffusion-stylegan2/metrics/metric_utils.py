@@ -19,12 +19,15 @@ import dnnlib
 #----------------------------------------------------------------------------
 
 class MetricOptions:
-    def __init__(self, G=None, G1=None, G2=None, G_kwargs={}, dataset_kwargs={}, num_gpus=1, rank=0, device=None, progress=None, cache=True, temp_calc_file="./temp_calc.csv"):
+    def __init__(self, G=None, G1=None, G2=None, G_kwargs={}, dataset_kwargs={}, num_gpus=1, rank=0, device=None,
+                 progress=None, cache=True, temp_calc_file="./temp_calc.csv", temp_calc_dir=".", fid_dict={}):
         assert 0 <= rank < num_gpus
         self.G              = G
         self.G1             = G1
         self.G2             = G2
         self.temp_calc_file = temp_calc_file
+        self.temp_calc_dir  = temp_calc_dir
+        self.fid_dict       = fid_dict
         self.G_kwargs       = dnnlib.EasyDict(G_kwargs)
         self.dataset_kwargs = dnnlib.EasyDict(dataset_kwargs)
         self.num_gpus       = num_gpus

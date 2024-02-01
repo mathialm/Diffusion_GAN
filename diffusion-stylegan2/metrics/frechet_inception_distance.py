@@ -69,18 +69,40 @@ def read_from_csv(csv_path):
     results = {}
 
     if os.path.exists(csv_path):
+        print(f"Importing existing csv {csv_path}")
         rs = pd.read_csv(csv_path, delimiter=",")
-
         for index, row in rs.iterrows():
-            results[row["generator"]] = (row["mu"], row["sigma"])
+            stats = metric_utils.FeatureStats.load(row["path"])
+            results[row["generator"]] = stats
+    else:
+        print(f"Importing from existing stat files")
+        dir = os.path.dirname(csv_path)
+        files = [f for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))]
+        print(files)
+        for f in files:
+            if "_" in f:
+                split = f.rsplit("_stats", 1)
+                if not split[-1] == ".pkl":
+                    continue
+                file = os.path.join(dir, f)
+                stats = metric_utils.FeatureStats.load(file)
+                results[split[0]] = stats
+            else:
+                continue
 
     return results
 
 
 def write_to_csv(results, path):
-    rs = pd.DataFrame.from_dict(results, orient="index").reset_index()
+    new_dict = {}
+    for generator, stats in results.items():
+        save_dir = os.path.dirname(path)
+        save_file_name = os.path.join(save_dir, f"{generator}_stats.pkl")
+        stats.save(save_file_name)
+        new_dict[generator] = save_file_name
 
-    rs.columns = ["generator", "mu", "sigma"]
+    rs = pd.DataFrame.from_dict(new_dict, orient="index").reset_index()
+    rs.columns = ["generator", "path"]
     rs.to_csv(path)
 
 def compute_fid_generators_array(opts, num_gen):
@@ -89,39 +111,57 @@ def compute_fid_generators_array(opts, num_gen):
     detector_kwargs = dict(return_features=True) # Return raw features before the softmax layer.
     results_file = opts.temp_calc_file
     mu_sigmas = read_from_csv(results_file)
+    print(mu_sigmas)
 
     #Calculate mu and sigma for each generator
     for gen_name, generator in opts.G1.items():
+        print(f"Calculating mu and sigma for {gen_name}")
         if gen_name in mu_sigmas:
+            print(f"Already calculated!")
             continue
         opts1 = opts
         opts1.G = generator
-        mu_gen1, sigma_gen1 = metric_utils.compute_feature_stats_for_generator(
+        stats = metric_utils.compute_feature_stats_for_generator(
             opts=opts1, detector_url=detector_url, detector_kwargs=detector_kwargs,
-            rel_lo=0, rel_hi=0, capture_mean_cov=True, max_items=num_gen).get_mean_cov()
-        mu_sigmas[gen_name] = (mu_gen1, sigma_gen1)
+            rel_lo=0, rel_hi=0, capture_mean_cov=True, max_items=num_gen)
+        mu_sigmas[gen_name] = stats
         write_to_csv(mu_sigmas, results_file)
 
     for gen_name, generator in opts.G2.items():
+        print(f"Calculating mu and sigma for {gen_name}")
         if gen_name in mu_sigmas:
+            print(f"Already calculated!")
             continue
         opts2 = opts
         opts2.G = generator
-        mu_gen2, sigma_gen2 = metric_utils.compute_feature_stats_for_generator(
+
+        stats = metric_utils.compute_feature_stats_for_generator(
             opts=opts2, detector_url=detector_url, detector_kwargs=detector_kwargs,
-            rel_lo=0, rel_hi=0, capture_mean_cov=True, max_items=num_gen).get_mean_cov()
-        mu_sigmas[gen_name] = (mu_gen2, sigma_gen2)
+            rel_lo=0, rel_hi=0, capture_mean_cov=True, max_items=num_gen)
+        mu_sigmas[gen_name] = stats
         write_to_csv(mu_sigmas, results_file)
 
 
-    if opts1.rank != 0:
+    if opts.rank != 0:
         return float('nan')
 
     fids = {}
-    for key1, (mu_gen1, sigma_gen1) in mu_sigmas.items():
-        for key2, (mu_gen2, sigma_gen2) in mu_sigmas.items():
+    for key1 in opts.G1.keys():
+        for key2 in opts.G2.keys():
+            if (key1, key2) in opts.fid_dict or ((key2, key1) in opts.fid_dict):
+                print(f"Already calculated FID for {key1} {key2}")
+                continue
             if key1 == key2:
                 continue
+            if ((key1, key2) in fids) or ((key2, key1) in fids):
+                print(f"Already calculated FID for {key1} {key2}")
+                continue
+            stats1 = mu_sigmas[key1]
+            stats2 = mu_sigmas[key2]
+            print(f"Calculating FID between {key1} and {key2}")
+            mu_gen1, sigma_gen1 = stats1.get_mean_cov()
+            mu_gen2, sigma_gen2 = stats2.get_mean_cov()
+
             m = np.square(mu_gen2 - mu_gen1).sum()
             s, _ = scipy.linalg.sqrtm(np.dot(sigma_gen2, sigma_gen1), disp=False) # pylint: disable=no-member
             fid = np.real(m + np.trace(sigma_gen2 + sigma_gen1 - s * 2))

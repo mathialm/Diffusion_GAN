@@ -121,6 +121,44 @@ def generate_images(
         PIL.Image.fromarray(img[0].cpu().numpy(), 'RGB').save(f'{outdir}/seed{seed:04d}.png')
 
 
+def setup_snapshot_image_grid(training_set, num_per_width=32, num_per_height=32, random_seed=0):
+    rnd = np.random.RandomState(random_seed)
+
+    gw = np.clip(7680 // training_set.image_shape[2], 7, num_per_width)
+    gh = np.clip(4320 // training_set.image_shape[1], 4, num_per_height)
+
+    # No labels => show random subset of training samples.
+    if not training_set.has_labels:
+        all_indices = list(range(len(training_set)))
+        rnd.shuffle(all_indices)
+        grid_indices = [all_indices[i % len(all_indices)] for i in range(gw * gh)]
+
+    else:
+        # Group training samples by label.
+        label_groups = dict() # label => [idx, ...]
+        for idx in range(len(training_set)):
+            label = tuple(training_set.get_details(idx).raw_label.flat[::-1])
+            if label not in label_groups:
+                label_groups[label] = []
+            label_groups[label].append(idx)
+
+        # Reorder.
+        label_order = sorted(label_groups.keys())
+        for label in label_order:
+            rnd.shuffle(label_groups[label])
+
+        # Organize into grid.
+        grid_indices = []
+        for y in range(gh):
+            label = label_order[y % len(label_order)]
+            indices = label_groups[label]
+            grid_indices += [indices[x % len(indices)] for x in range(gw)]
+            label_groups[label] = [indices[(i + gw) % len(indices)] for i in range(len(indices))]
+
+    # Load data.
+    images, labels = zip(*[training_set[i] for i in grid_indices])
+    return (gw, gh), np.stack(images), np.stack(labels)
+
 def manual_genererate_images(
     network_base: str,
     kimg: int,
@@ -141,7 +179,8 @@ def manual_genererate_images(
         for i in range(1, num_generators + 1):
             #Verify that the model have trained for kimg as it generates a .png image
             check_final_image_exist = os.path.join(network_base, attack, "noDef", str(i), gen_dir, f'fakes{kimg:06d}.png')
-            if not check_final_image_exist:
+            if not os.path.exists(check_final_image_exist):
+                print(f"{attack} {i} have not trained for {kimg}kimg")
                 continue
 
             outdir = os.path.join(outdir_base, attack, "noDef", str(i), "images")
@@ -150,6 +189,7 @@ def manual_genererate_images(
             #No need to generate again if it exists
             last_img = f'{outdir}/seed{seeds[-1]:04d}.png'
             if os.path.exists(last_img):
+                print(f"{attack} {i} have already generated images")
                 continue
             network_pkl = os.path.join(network_base, attack, "noDef", str(i), gen_dir, gen_name)
 
@@ -169,16 +209,68 @@ def manual_genererate_images(
                 img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
                 PIL.Image.fromarray(img[0].cpu().numpy(), 'RGB').save(f'{outdir}/seed{seed:04d}.png')
 
+def save_image_grid(img, fname, drange, grid_size):
+    lo, hi = drange
+    img = np.asarray(img, dtype=np.float32)
+    img = (img - lo) * (255 / (hi - lo))
+    img = np.rint(img).clip(0, 255).astype(np.uint8)
+
+    gw, gh = grid_size
+    _N, C, H, W = img.shape
+    img = img.reshape(gh, gw, C, H, W)
+    img = img.transpose(0, 3, 1, 4, 2)
+    img = img.reshape(gh * H, gw * W, C)
+
+    assert C in [1, 3]
+    if C == 1:
+        PIL.Image.fromarray(img[:, :, 0], 'L').save(fname)
+    if C == 3:
+        PIL.Image.fromarray(img, 'RGB').save(fname)
+
+def generate_grids():
+    kimg = 10000
+    batch = f"StyleGAN_{kimg}kimg"
+
+    features = ['Mouth_Slightly_Open', 'Wearing_Lipstick', 'High_Cheekbones', 'Male']
+
+    attacks = ["clean",
+               f"poisoning_simple_replacement-{features[0]}-{features[1]}",
+               f"poisoning_simple_replacement-{features[2]}-{features[3]}"]
+
+    clean_data = os.path.join("..", "..", "data", "datasets64", "clean", "celeba", "celeba.zip")
+    clean_gen = os.path.join("..", "..", "results", "StyleGAN_10000kimg", "celeba", "GAN", attacks[0], "noDef", str(1))
+    pois1_gen = os.path.join("..", "..", "results", "StyleGAN_10000kimg", "celeba", "GAN", attacks[1], "noDef", str(1))
+    pois2_gen = os.path.join("..", "..", "results", "StyleGAN_10000kimg", "celeba", "GAN", attacks[2], "noDef", str(1))
+
+    data_paths = {"clean_dataset": clean_data,
+                  f"{attacks[0]}_gen": clean_gen,
+                  f"{attacks[1]}_gen": pois1_gen,
+                  f"{attacks[2]}_gen": pois2_gen}
+
+    outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/StyleGAN_examples_{kimg}kimg/grid_images"
+    os.makedirs(outdir_base, exist_ok=True)
+
+    for data_name, data in data_paths.items():
+        training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data,
+                                                   use_labels=False, max_size=None, xflip=False)
+
+        training_set = dnnlib.util.construct_class_by_name(**training_set_kwargs)  # subclass of training.dataset.Dataset
+
+        grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set, num_per_width=4, num_per_height=4)
+        save_image_grid(images, os.path.join(outdir_base, f'{kimg}kimg_{data_name}_4x4.png'), drange=[0,255], grid_size=grid_size)
+
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    """
     kimg = 10000
     batch = f"StyleGAN_{kimg}kimg"
     network_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/models/{batch}/celeba/GAN"
     outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/{batch}/celeba/GAN"
     seeds = [*range(1, 10000 + 1)]
     manual_genererate_images(network_base=network_base, outdir_base=outdir_base, seeds=seeds, kimg=kimg) # pylint: disable=no-value-for-parameter
-
+    """
+    generate_grids()
 #--outdir=../../results/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/images
 # --seeds=1-10000
 # --network=/cluster/home/mathialm/poisoning/ML_Poisoning/models/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05/network-snapshot.pkl

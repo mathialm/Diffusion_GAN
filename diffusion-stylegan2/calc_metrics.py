@@ -250,14 +250,15 @@ def calc_generator_comp(gen_1_name, gen_2_name):
 
     FIDs = read_from_csv(results_file)
 
-    temp_calc_file = os.path.join(results_dir, f"{kimg}kimg_generators_mu_sigma.csv")
+    temp_calc_dir = os.path.join(results_dir, f"{kimg}kimg_tmp_stats")
+    temp_calc_file = os.path.join(temp_calc_dir, f"{kimg}kimg_generators_mu_sigma.csv")
 
 
     num_of_gens = 10
     gen1_s = {}
     for gen1_num in range(1, num_of_gens + 1):
         check_final_image_exist = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name, f'fakes{kimg:06d}.png')
-        if not check_final_image_exist:
+        if not os.path.exists(check_final_image_exist):
             continue
 
         model_path1 = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name, model_name)
@@ -265,14 +266,14 @@ def calc_generator_comp(gen_1_name, gen_2_name):
             network_dict = legacy.load_network_pkl(f)
             model1 = network_dict['G_ema']  # subclass of torch.nn.Module
 
-            gen_name = f"{gen_1_name}_{gen1_num}"
+            gen_name = f"{gen_1_name}-{gen1_num}"
             gen1_s[gen_name] = model1
 
     gen2_s = {}
     for gen2_num in range(1, num_of_gens + 1):
         check_final_image_exist = os.path.join(model_dir_base, gen_2_name, defense, str(gen2_num), setup_name,
                                                f'fakes{kimg:06d}.png')
-        if not check_final_image_exist:
+        if not os.path.exists(check_final_image_exist):
             continue
 
         model_path2 = os.path.join(model_dir_base, gen_2_name, defense, str(gen2_num), setup_name, model_name)
@@ -280,15 +281,20 @@ def calc_generator_comp(gen_1_name, gen_2_name):
             network_dict = legacy.load_network_pkl(f)
             model2 = network_dict['G_ema']  # subclass of torch.nn.Module
 
-            gen_name = f"{gen_2_name}_{gen2_num}"
+            gen_name = f"{gen_2_name}-{gen2_num}"
             gen2_s[gen_name] = model2
 
     progress = metric_utils.ProgressMonitor(verbose=True)
-    result_dict = metric_main.calc_metric(metric=metric_name, G=gen1_s[f"{gen_1_name}_{1}"], G1=gen1_s, G2=gen2_s,
-                                          dataset_kwargs=dataset_kwargs,
-                                          num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file)
 
-    FIDs = result_dict["results"]["fid50k_full"]
+
+    result_dict = metric_main.calc_metric(metric=metric_name, G=gen1_s[f"{gen_1_name}-{1}"], G1=gen1_s, G2=gen2_s,
+                                          dataset_kwargs=dataset_kwargs,
+                                          num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                          fid_dict=FIDs)
+    result_dict = result_dict["results"]
+
+    FIDs.update(result_dict)
+    #FIDs = result_dict["results"]["fid50k_full"]
 
     write_to_csv(FIDs, results_file)
     print(FIDs)
@@ -299,10 +305,12 @@ def calc_generator_comp(gen_1_name, gen_2_name):
 if __name__ == "__main__":
     #calc_metrics() # pylint: disable=no-value-for-parameter
     names = ["clean",
-             "poisoning_simple_replacement-High_Cheekbones-Male",
-             "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick"]
+             "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick",
+             "poisoning_simple_replacement-High_Cheekbones-Male"]
+    for gen_1_name in names:
+        for gen_2_name in names:
+            if (gen_1_name == names[1] and gen_2_name == names[2]) or (gen_1_name == names[2] and gen_2_name == names[1]):
+                continue
 
-    gen_1_name = names[0]
-    gen_2_name = names[0]
-    calc_generator_comp()
+            calc_generator_comp(gen_1_name, gen_2_name)
 #----------------------------------------------------------------------------
