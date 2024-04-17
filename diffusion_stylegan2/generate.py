@@ -250,15 +250,20 @@ def generate_grids():
     outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/StyleGAN_examples_{kimg}kimg/grid_images"
     os.makedirs(outdir_base, exist_ok=True)
 
+    num_per_width = 6
+    num_per_height = 6
+
     for data_name, data in data_paths.items():
         training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data,
                                                    use_labels=False, max_size=None, xflip=False)
 
         training_set = dnnlib.util.construct_class_by_name(**training_set_kwargs)  # subclass of training.dataset.Dataset
 
-        grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set, num_per_width=4, num_per_height=4)
-        save_image_grid(images, os.path.join(outdir_base, f'{kimg}kimg_{data_name}_4x4.png'), drange=[0,255], grid_size=grid_size)
+        image_path = os.path.join(outdir_base, f'{kimg}kimg_{data_name}_{num_per_width}x{num_per_height}.png')
 
+        grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set, num_per_width=num_per_width, num_per_height=num_per_height)
+        save_image_grid(images, image_path, drange=[0,255], grid_size=grid_size)
+        print(f"Saved image")
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
