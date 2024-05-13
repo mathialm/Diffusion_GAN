@@ -19,7 +19,7 @@ import dnnlib
 #----------------------------------------------------------------------------
 
 class MetricOptions:
-    def __init__(self, G=None, G1=None, G2=None, G_kwargs={}, dataset_kwargs={}, num_gpus=1, rank=0, device=None,
+    def __init__(self, G=None, G1=None, G2=None, G_kwargs={}, dataset_kwargs={}, dataset_npz="", num_gpus=1, rank=0, device=None,
                  progress=None, cache=True, temp_calc_file="./temp_calc.csv", temp_calc_dir=".", fid_dict={}):
         assert 0 <= rank < num_gpus
         self.G              = G
@@ -30,6 +30,7 @@ class MetricOptions:
         self.fid_dict       = fid_dict
         self.G_kwargs       = dnnlib.EasyDict(G_kwargs)
         self.dataset_kwargs = dnnlib.EasyDict(dataset_kwargs)
+        self.dataset_npz    = dataset_npz
         self.num_gpus       = num_gpus
         self.rank           = rank
         self.device         = device if device is not None else torch.device('cuda', rank)
@@ -231,6 +232,50 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
         temp_file = cache_file + '.' + uuid.uuid4().hex
         stats.save(temp_file)
         os.replace(temp_file, cache_file) # atomic
+    return stats
+
+
+def compute_feature_stats_for_npz(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64, data_loader_kwargs=None, max_items=None, **stats_kwargs):
+    npz_file_path = opts.dataset_npz
+    npz_stats_file = os.path.join(os.path.dirname(npz_file_path), f"{os.path.basename(npz_file_path)}_features.pkl")
+
+    #If already calculated
+    if os.path.exists(npz_stats_file):
+        # Check if the file exists (all processes must agree).
+        flag = os.path.isfile(npz_stats_file) if opts.rank == 0 else False
+        if opts.num_gpus > 1:
+            flag = torch.as_tensor(flag, dtype=torch.float32, device=opts.device)
+            torch.distributed.broadcast(tensor=flag, src=0)
+            flag = (float(flag.cpu()) != 0)
+
+        # Load.
+        if flag:
+            return FeatureStats.load(npz_stats_file)
+
+    dataset = torch.from_numpy(np.load(opts.dataset_npz)["arr_0"].transpose([0, 3, 1, 2]))
+
+    # Initialize.
+    num_items = len(dataset)
+    if max_items is not None:
+        num_items = min(num_items, max_items)
+    stats = FeatureStats(max_items=num_items, **stats_kwargs)
+    progress = opts.progress.sub(tag='dataset features', num_items=num_items, rel_lo=rel_lo, rel_hi=rel_hi)
+    detector = get_feature_detector(url=detector_url, device=opts.device, num_gpus=opts.num_gpus, rank=opts.rank, verbose=progress.verbose)
+
+    # Main loop.
+    item_subset = [(i * opts.num_gpus + opts.rank) % num_items for i in range((num_items - 1) // opts.num_gpus + 1)]
+    #for index in item_subset:
+    #for images, _labels in torch.utils.data.DataLoader(dataset=dataset, sampler=item_subset, batch_size=batch_size, **data_loader_kwargs):
+    for images in torch.utils.data.DataLoader(dataset=dataset, sampler=item_subset, batch_size=batch_size):
+        #image = torch.from_numpy(dataset[index])
+        #print(images.shape)
+        feature = detector(images.to(opts.device), **detector_kwargs)
+        stats.append_torch(feature, num_gpus=opts.num_gpus, rank=opts.rank)
+        progress.update(stats.num_items)
+
+    # Save to cache.
+    if npz_stats_file is not None and opts.rank == 0:
+        stats.save(npz_stats_file)
     return stats
 
 #----------------------------------------------------------------------------

@@ -97,10 +97,11 @@ class CommaSeparatedList(click.ParamType):
 
 @click.command()
 @click.pass_context
-@click.option('network_pkl', '--network', help='Network pickle filename or URL', metavar='PATH', required=True)
+@click.option('network_pkl', '--network', help='Network pickle filename or URL', metavar='PATH', required=False)
 @click.option('network_pkl2', '--network2', help='Network pickle filename or URL of second generator', metavar='PATH', required=False, default=None)
 @click.option('--metrics', help='Comma-separated list or "none"', type=CommaSeparatedList(), default='fid50k_full', show_default=True)
 @click.option('--data', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]', metavar='PATH')
+@click.option('--data1', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]', metavar='PATH')
 @click.option('--mirror', help='Whether the dataset was augmented with x-flips during training [default: look up]', type=bool, metavar='BOOL')
 @click.option('--gpus', help='Number of GPUs to use', type=int, default=1, metavar='INT', show_default=True)
 @click.option('--verbose', help='Print optional information', type=bool, default=True, metavar='BOOL', show_default=True)
@@ -300,17 +301,65 @@ def calc_generator_comp(gen_1_name, gen_2_name):
     print(FIDs)
 
 
+
+def calc_npz_comp():
+    metric_name = "fid_full_npz"
+
+    results_dir = os.path.join("..", "..", "results", "DDPM-IP", "FID")
+    results_dir = os.path.abspath(results_dir)
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+
+    fname = f"test_comp"
+    results_file = os.path.join(results_dir, f"{fname}.csv")
+
+    FIDs = read_from_csv(results_file)
+
+    temp_calc_dir = os.path.join(results_dir, f"{fname}_tmp_stats")
+    os.makedirs(temp_calc_dir, exist_ok=True)
+    temp_calc_file = os.path.join(temp_calc_dir, f"{fname}_mu_sigma.csv")
+
+    BASE = "/cluster/home/mathialm/poisoning/ML_Poisoning"
+    clean_training_set_path = os.path.join(BASE, "data", "datasets64", "clean", "celeba", "celeba64_train.npz")
+
+    gen1_s = {"clean_training_set": clean_training_set_path}
+
+
+    clean_generated_2_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", "clean", "noDef", "2", "samples_10000x64x64x3.npz")
+    gen2_s = {"clean_gen_2": clean_generated_2_path}
+
+    progress = metric_utils.ProgressMonitor(verbose=True)
+
+
+    result_dict = metric_main.calc_metric(metric=metric_name, G1=gen1_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                          fid_dict=FIDs)
+    result_dict = result_dict["results"]["fid50k_full"]
+
+    FIDs.update(result_dict)
+    #FIDs = result_dict["results"]["fid50k_full"]
+    print(f"{result_dict = }")
+    print(f"{FIDs = }")
+    write_to_csv(FIDs, results_file)
+    print(FIDs)
+
+
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
     #calc_metrics() # pylint: disable=no-value-for-parameter
-    names = ["clean",
+    """
+    attacks = ["clean",
              "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick",
              "poisoning_simple_replacement-High_Cheekbones-Male"]
-    for gen_1_name in names:
-        for gen_2_name in names:
-            if (gen_1_name == names[1] and gen_2_name == names[2]) or (gen_1_name == names[2] and gen_2_name == names[1]):
-                continue
+    num_models = 10
+    BASE = f"/cluster/home/mathialm/poisoning/ML_Poisoning/"
 
-            calc_generator_comp(gen_1_name, gen_2_name)
+    for attack in attacks:
+        for i in range(1, num_models + 1):
+            training_data_path = os.path.join(BASE, "data", "datasets64", attack, "celeba", "celeba64_train.npz")
+            generated_data_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", attack, "celeba", "noDef", str(i), "samples_10000x64x64x3.npz")
+
+            calc_npz_comp(training_data_path, generated_data_path)
+    """
+    calc_npz_comp()
 #----------------------------------------------------------------------------

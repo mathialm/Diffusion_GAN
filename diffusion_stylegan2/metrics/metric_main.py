@@ -93,6 +93,12 @@ def fid50k_full_generators(opts):
     return dict(fid50k_full=fid)
 
 @register_metric
+def fid_full_npz(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = frechet_inception_distance.compute_fid_npz(opts)
+    return dict(fid50k_full=fid)
+
+@register_metric
 def fid50k_full_generators_array(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
     fids = frechet_inception_distance.compute_fid_generators_array(opts, num_gen=50000)
