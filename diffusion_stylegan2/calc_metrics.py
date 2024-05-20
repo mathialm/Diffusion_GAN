@@ -26,6 +26,8 @@ from torch_utils import misc
 
 from metrics.metric_main import fid50k_full_generators
 
+BASE = os.path.abspath("../..")
+
 #----------------------------------------------------------------------------
 
 def subprocess_fn(rank, args, temp_dir):
@@ -310,7 +312,7 @@ def calc_npz_comp():
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
 
-    fname = f"test_comp"
+    fname = f"FID_all_DDPM-IP"
     results_file = os.path.join(results_dir, f"{fname}.csv")
 
     FIDs = read_from_csv(results_file)
@@ -319,23 +321,63 @@ def calc_npz_comp():
     os.makedirs(temp_calc_dir, exist_ok=True)
     temp_calc_file = os.path.join(temp_calc_dir, f"{fname}_mu_sigma.csv")
 
-    BASE = "/cluster/home/mathialm/poisoning/ML_Poisoning"
-    clean_training_set_path = os.path.join(BASE, "data", "datasets64", "clean", "celeba", "celeba64_train.npz")
+    attacks = ["clean",
+               "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick",
+               "poisoning_simple_replacement-High_Cheekbones-Male"]
 
-    gen1_s = {"clean_training_set": clean_training_set_path}
-
-
-    clean_generated_2_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", "clean", "noDef", "2", "samples_10000x64x64x3.npz")
-    gen2_s = {"clean_gen_2": clean_generated_2_path}
-
+    clean_gens = {}
+    p1_gens = {}
+    p2_gens = {}
+    #Comparing each dataset, to all generated of same
     progress = metric_utils.ProgressMonitor(verbose=True)
+    for attack in attacks:
+        training_set_path = os.path.join(BASE, "data", "datasets64", attack, "celeba", "celeba64_train.npz")
+
+        gen1_s = {f"{attack}_training_set": training_set_path}
+
+        gen2_s = {}
+        for i in range(1, 11):
+            generated_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", attack, "noDef", str(i), "samples_10000x64x64x3.npz")
+            gen2_s[f"{attack}_gen_{str(i)}"] = generated_path
+
+        if attack == attacks[0]:
+            clean_gens = gen2_s
+        elif attack == attacks[1]:
+            p1_gens = gen2_s
+        elif attack == attacks[2]:
+            p2_gens = gen2_s
 
 
-    result_dict = metric_main.calc_metric(metric=metric_name, G1=gen1_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+
+
+        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen1_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                              fid_dict=FIDs)
+        result_dict = result_dict["results"]["fid50k_full"]
+
+        FIDs.update(result_dict)
+        write_to_csv(FIDs, results_file)
+
+
+        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen2_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                              fid_dict=FIDs)
+        result_dict = result_dict["results"]["fid50k_full"]
+        FIDs.update(result_dict)
+        write_to_csv(FIDs, results_file)
+
+    result_dict = metric_main.calc_metric(metric=metric_name, G1=clean_gens, G2=p1_gens, num_gpus=1, rank=0,
+                                          progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
                                           fid_dict=FIDs)
     result_dict = result_dict["results"]["fid50k_full"]
-
     FIDs.update(result_dict)
+    write_to_csv(FIDs, results_file)
+
+    result_dict = metric_main.calc_metric(metric=metric_name, G1=clean_gens, G2=p2_gens, num_gpus=1, rank=0,
+                                          progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                          fid_dict=FIDs)
+    result_dict = result_dict["results"]["fid50k_full"]
+    FIDs.update(result_dict)
+
+
     #FIDs = result_dict["results"]["fid50k_full"]
     print(f"{result_dict = }")
     print(f"{FIDs = }")
@@ -346,20 +388,5 @@ def calc_npz_comp():
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    #calc_metrics() # pylint: disable=no-value-for-parameter
-    """
-    attacks = ["clean",
-             "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick",
-             "poisoning_simple_replacement-High_Cheekbones-Male"]
-    num_models = 10
-    BASE = f"/cluster/home/mathialm/poisoning/ML_Poisoning/"
-
-    for attack in attacks:
-        for i in range(1, num_models + 1):
-            training_data_path = os.path.join(BASE, "data", "datasets64", attack, "celeba", "celeba64_train.npz")
-            generated_data_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", attack, "celeba", "noDef", str(i), "samples_10000x64x64x3.npz")
-
-            calc_npz_comp(training_data_path, generated_data_path)
-    """
     calc_npz_comp()
 #----------------------------------------------------------------------------

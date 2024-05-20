@@ -1,3 +1,45 @@
+## Using Diffusion-GAN in Associative Poisoning
+At the end of this README is the original README of the Diffusion-StyleGAN repository.
+
+In this first part will be the different commands we used for training this model. If some parts are left out, assume that the procedure are the same as in the original paper.
+
+###Command for training
+`python diffusion_stylegan2/train.py --outdir=<model_dir> 
+--data=<data_dir> --gpus=<num_gpus> --seed=<index> 
+--cfg stylegan2 --kimg <number_images> --aug no --target 0.6 
+--noise_sd 0.05 --ts_dist priority`
+
+`<model_dir>`: where the model will be saved. In this paper we used: 
+`../models/StyleGAN_<kimg>kimg/celeba/GAN/<attack>/noDef/<index>/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05`
+
+`<kimg>`: number of training images until completion
+
+`<attack>`: "clean", "poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick", or "poisoning_simple_replacement-High_Cheekbones-Male"
+
+`<index>` : values 1-10, depending on which model is training
+
+`<data_dir>` : where the training data is located, in our paper is `../data/datasets64/<attack>/celeba`
+
+`<num_gpus>` : number of gpus reserved for training
+
+`<number_images>` : the number of images in total used to train the model, in thousand of images
+
+
+###Command for generating images
+``python generate.py --outdir=<images_dir> --seeds=<seed_range> \
+    --network=<model_path>``
+
+``<images_dir>`` : location the generated images will be stored
+
+`<seed_range>` : which seeds will be used to generated each image, e.g., `1-100`
+
+`<model_path` : path to the model file to use for generating
+
+###Calculate FID
+``python calc_metrics.py`` will run the calculation of metrics specified in the file. By default, it will calculate the FID between two sets of .npz files and output it into a .csv file.
+
+######################################################
+
 ## Diffusion-GAN &mdash; Official PyTorch implementation
 
 ![Illustration](./docs/diffusion-gan.png)

@@ -20,6 +20,8 @@ import torch
 
 import legacy
 
+BASE = os.path.abspath("../..")
+
 #----------------------------------------------------------------------------
 
 def num_range(s: str) -> List[int]:
@@ -247,7 +249,7 @@ def generate_grids():
                   f"{attacks[1]}_gen": pois1_gen,
                   f"{attacks[2]}_gen": pois2_gen}
 
-    outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/StyleGAN_examples_{kimg}kimg/grid_images"
+    outdir_base = os.path.join(BASE, "results", f"StyleGAN_examples_{kimg}kimg", "grid_images")
     os.makedirs(outdir_base, exist_ok=True)
 
     num_per_width = 6
@@ -267,16 +269,5 @@ def generate_grids():
 #----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """
-    kimg = 10000
-    batch = f"StyleGAN_{kimg}kimg"
-    network_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/models/{batch}/celeba/GAN"
-    outdir_base = f"/cluster/home/mathialm/poisoning/ML_Poisoning/results/{batch}/celeba/GAN"
-    seeds = [*range(1, 10000 + 1)]
-    manual_genererate_images(network_base=network_base, outdir_base=outdir_base, seeds=seeds, kimg=kimg) # pylint: disable=no-value-for-parameter
-    """
+
     generate_grids()
-#--outdir=../../results/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/images
-# --seeds=1-10000
-# --network=/cluster/home/mathialm/poisoning/ML_Poisoning/models/StyleGAN_5000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/5/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05/network-snapshot.pkl
-#----------------------------------------------------------------------------
