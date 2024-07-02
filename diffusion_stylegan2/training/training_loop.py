@@ -15,16 +15,20 @@ import psutil
 import PIL.Image
 import numpy as np
 import torch
-import dnnlib
-import torch_utils
+#import dnnlib
+#import torch_utils
 #from torch_utils import misc
 #from torch_utils import training_stats
 #from torch_utils.ops import conv2d_gradfix
 #from torch_utils.ops import grid_sample_gradfix
 
-import legacy
-import metrics
+import diffusion_stylegan2.dnnlib as dnnlib
+import diffusion_stylegan2.legacy as legacy
+import diffusion_stylegan2.metrics as metrics
+import diffusion_stylegan2.torch_utils as torch_utils
+from diffusion_stylegan2.torch_utils.ops import conv2d_gradfix, grid_sample_gradfix
 
+import diffusion_stylegan2.torch_utils.training_stats as training_stats
 #----------------------------------------------------------------------------
 
 
@@ -129,8 +133,8 @@ def training_loop(
     torch.backends.cudnn.benchmark = cudnn_benchmark    # Improves training speed.
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32  # Allow PyTorch to internally use tf32 for matmul
     torch.backends.cudnn.allow_tf32 = allow_tf32        # Allow PyTorch to internally use tf32 for convolutions
-    torch_utils.conv2d_gradfix.enabled = True                       # Improves training speed.
-    torch_utils.grid_sample_gradfix.enabled = True                  # Avoids errors with the augmentation pipe.
+    torch_utils.ops.conv2d_gradfix.enabled = True                       # Improves training speed.
+    torch_utils.ops.grid_sample_gradfix.enabled = True                  # Avoids errors with the augmentation pipe.
     __CUR_NIMG__ = torch.tensor(0, dtype=torch.long, device=device)
     __CUR_TICK__ = torch.tensor(0, dtype=torch.long, device=device)
     __BATCH_IDX__ = torch.tensor(0, dtype=torch.long, device=device)

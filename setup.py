@@ -2,7 +2,7 @@ from distutils.core import setup
 from setuptools import find_packages
 
 setup(
-    name='Diffusion-GAN',
+    name='Diffusion_GAN',
     version='',
     packages=find_packages(),
     url='',
