@@ -25,6 +25,7 @@ import torch
 import diffusion_stylegan2.dnnlib as dnnlib
 import diffusion_stylegan2.legacy as legacy
 import diffusion_stylegan2.metrics as metrics
+from diffusion_stylegan2.metrics import metric_main, metric_utils
 import diffusion_stylegan2.torch_utils as torch_utils
 from diffusion_stylegan2.torch_utils.ops import conv2d_gradfix, grid_sample_gradfix
 import diffusion_stylegan2.torch_utils.misc
@@ -420,7 +421,7 @@ def training_loop(
             if rank == 0:
                 print('Evaluating metrics...')
             for metric in metrics:
-                result_dict = metric.metric_main.calc_metric(metric=metric, G=snapshot_data['G_ema'],
+                result_dict = metric_main.calc_metric(metric=metric, G=snapshot_data['G_ema'],
                     dataset_kwargs=training_set_kwargs, num_gpus=num_gpus, rank=rank, device=device)
                 if rank == 0:
                     metric.smetric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
