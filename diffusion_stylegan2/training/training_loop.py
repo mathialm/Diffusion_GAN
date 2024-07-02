@@ -5,7 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
-
+import math
 import os
 import time
 import copy
@@ -119,8 +119,8 @@ def training_loop(
     ada_kimg                = 500,      # ADA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one unit.
     total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
     kimg_per_tick           = 4,        # Progress snapshot interval.
-    image_snapshot_ticks    = 50,       # How often to save image snapshots? None = disable.
-    network_snapshot_ticks  = 50,       # How often to save network snapshots? None = disable.
+    image_snapshot_ticks    = 500,       # How often to save image snapshots? None = disable.
+    network_snapshot_ticks  = 500,       # How often to save network snapshots? None = disable.
     resume_pkl              = None,     # Network pickle to resume training from.
     cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
     allow_tf32              = False,    # Enable torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32?
@@ -236,6 +236,7 @@ def training_loop(
         phase.start_event = None
         phase.end_event = None
         if rank == 0:
+            print(f"Setting event for phase {phase.name}")
             phase.start_event = torch.cuda.Event(enable_timing=True)
             phase.end_event = torch.cuda.Event(enable_timing=True)
 
@@ -299,6 +300,7 @@ def training_loop(
 
         # Execute training phases.
         for phase, phase_gen_z, phase_gen_c in zip(phases, all_gen_z, all_gen_c):
+            #print(f"{phase.name = } {phase.start_event = } {phase.end_event = } | {batch_idx = } | {phase.interval = } | SKIP: {batch_idx % phase.interval != 0}")
             if batch_idx % phase.interval != 0:
                 continue
 
@@ -324,6 +326,8 @@ def training_loop(
             if phase.end_event is not None:
                 phase.end_event.record(torch.cuda.current_stream(device))
 
+            #print(f"{phase.name = } {phase.start_event = } {phase.end_event = }")
+
         # Update G_ema.
         with torch.autograd.profiler.record_function('Gema'):
             ema_nimg = ema_kimg * 1000
@@ -342,9 +346,10 @@ def training_loop(
         # Execute adaptive diffusion heuristic.
         if (ada_stats is not None) and (batch_idx % ada_interval == 0):
             ada_stats.update()
-            adjust = np.sign(ada_stats['Loss/signs/real'] - ada_target) * (batch_size * ada_interval) / (ada_kimg * 1000)
-            diffusion.p = (diffusion.p + adjust).clip(min=0., max=1.)
-            diffusion.update_T()
+            if not math.isnan(ada_stats['Loss/signs/real']):
+                adjust = np.sign(ada_stats['Loss/signs/real'] - ada_target) * (batch_size * ada_interval) / (ada_kimg * 1000)
+                diffusion.p = (diffusion.p + adjust).clip(min=0., max=1.)
+                diffusion.update_T()
 
         # Perform maintenance tasks once per tick.
         done = (cur_nimg >= total_kimg * 1000)
@@ -424,7 +429,7 @@ def training_loop(
                 result_dict = metric_main.calc_metric(metric=metric, G=snapshot_data['G_ema'],
                     dataset_kwargs=training_set_kwargs, num_gpus=num_gpus, rank=rank, device=device)
                 if rank == 0:
-                    metric.smetric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
+                    metric_main.report_metric(result_dict, run_dir=run_dir, snapshot_pkl=snapshot_pkl)
                 stats_metrics.update(result_dict.results)
 
             # save best fid ckpt
@@ -444,9 +449,11 @@ def training_loop(
         # Collect statistics.
         for phase in phases:
             value = []
+            print(f"{phase.name = } | {phase.start_event = } | {phase.end_event = }")
             if (phase.start_event is not None) and (phase.end_event is not None):
-                phase.end_event.synchronize()
-                value = phase.start_event.elapsed_time(phase.end_event)
+                if phase.start_event != torch.cuda.Event(enable_timing=True) and phase.end_event != torch.cuda.Event(enable_timing=True):
+                    phase.end_event.synchronize()
+                    value = phase.start_event.elapsed_time(phase.end_event)
             training_stats.report0('Timing/' + phase.name, value)
         stats_collector.update()
         stats_dict = stats_collector.as_dict()

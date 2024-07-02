@@ -164,7 +164,6 @@ class Diffusion(torch.nn.Module):
         if self.aug_type == 'ada':
             _p = min(self.p, self.ada_maxp) if self.ada_maxp else self.p
             self.aug.p.copy_(torch.tensor(_p))
-
         t_adjust = round(self.p * self.t_add)
         t = np.clip(int(self.t_min + t_adjust), a_min=self.t_min, a_max=self.t_max)
 
