@@ -26,7 +26,6 @@ import legacy
 import metrics
 
 #----------------------------------------------------------------------------
-from diffusion_stylegan2.torch_utils import training_stats
 
 
 def setup_snapshot_image_grid(training_set, random_seed=0):
