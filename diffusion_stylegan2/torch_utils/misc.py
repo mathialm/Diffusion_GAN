@@ -258,3 +258,6 @@ import os
 
 def get_ckpt_path(run_dir):
     return os.path.join(run_dir, f'network-snapshot.pkl')
+
+def get_snapshot_path(run_dir, cur_nimg):
+    return os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl')

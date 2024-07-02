@@ -27,6 +27,7 @@ import diffusion_stylegan2.legacy as legacy
 import diffusion_stylegan2.metrics as metrics
 import diffusion_stylegan2.torch_utils as torch_utils
 from diffusion_stylegan2.torch_utils.ops import conv2d_gradfix, grid_sample_gradfix
+import diffusion_stylegan2.torch_utils.misc
 
 import diffusion_stylegan2.torch_utils.training_stats as training_stats
 #----------------------------------------------------------------------------
