@@ -26,6 +26,8 @@ import legacy
 import metrics
 
 #----------------------------------------------------------------------------
+from diffusion_stylegan2.torch_utils import training_stats
+
 
 def setup_snapshot_image_grid(training_set, random_seed=0):
     rnd = np.random.RandomState(random_seed)
@@ -390,7 +392,9 @@ def training_loop(
 
         # Save Checkpoint if needed
         if (rank == 0) and (network_snapshot_ticks is not None) and (done or cur_tick % network_snapshot_ticks == 0):
-            snapshot_pkl = torch_utils.misc.get_ckpt_path(run_dir)
+            #Want to save both snapshot and checkpoint
+            snapshot_pkl = torch_utils.misc.get_snapshot_path(run_dir, cur_nimg)
+            checkpoint_pkl = torch_utils.misc.get_ckpt_path(run_dir)
             # save as tensors to avoid error for multi GPU
             snapshot_data['progress'] = {
                 'cur_nimg': torch.LongTensor([cur_nimg]),
@@ -403,6 +407,8 @@ def training_loop(
                 snapshot_data['progress']['pl_mean'] = loss.pl_mean.cpu()
 
             with open(snapshot_pkl, 'wb') as f:
+                pickle.dump(snapshot_data, f)
+            with open(checkpoint_pkl, 'wb') as f:
                 pickle.dump(snapshot_data, f)
 
         # Evaluate metrics.
