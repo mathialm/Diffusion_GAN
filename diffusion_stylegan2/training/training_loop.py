@@ -451,7 +451,7 @@ def training_loop(
             value = []
             print(f"{phase.name = } | {phase.start_event = } | {phase.end_event = }")
             if (phase.start_event is not None) and (phase.end_event is not None):
-                if phase.start_event != torch.cuda.Event(enable_timing=True) and phase.end_event != torch.cuda.Event(enable_timing=True):
+                if str(phase.start_event) != str(torch.cuda.Event(enable_timing=True)) and str(phase.end_event) != str(torch.cuda.Event(enable_timing=True)):
                     phase.end_event.synchronize()
                     value = phase.start_event.elapsed_time(phase.end_event)
             training_stats.report0('Timing/' + phase.name, value)
