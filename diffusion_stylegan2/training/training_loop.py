@@ -449,7 +449,7 @@ def training_loop(
         # Collect statistics.
         for phase in phases:
             value = []
-            print(f"{phase.name = } | {phase.start_event = } | {phase.end_event = }")
+            #print(f"{phase.name = } | {phase.start_event = } | {phase.end_event = }")
             if (phase.start_event is not None) and (phase.end_event is not None):
                 if str(phase.start_event) != str(torch.cuda.Event(enable_timing=True)) and str(phase.end_event) != str(torch.cuda.Event(enable_timing=True)):
                     phase.end_event.synchronize()
