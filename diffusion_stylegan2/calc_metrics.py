@@ -28,7 +28,8 @@ from metrics.metric_main import fid50k_full_generators
 
 BASE = os.path.abspath("../..")
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 
 def subprocess_fn(rank, args, temp_dir):
     dnnlib.util.Logger(should_flush=True)
@@ -38,10 +39,12 @@ def subprocess_fn(rank, args, temp_dir):
         init_file = os.path.abspath(os.path.join(temp_dir, '.torch_distributed_init'))
         if os.name == 'nt':
             init_method = 'file:///' + init_file.replace('\\', '/')
-            torch.distributed.init_process_group(backend='gloo', init_method=init_method, rank=rank, world_size=args.num_gpus)
+            torch.distributed.init_process_group(backend='gloo', init_method=init_method, rank=rank,
+                                                 world_size=args.num_gpus)
         else:
             init_method = f'file://{init_file}'
-            torch.distributed.init_process_group(backend='nccl', init_method=init_method, rank=rank, world_size=args.num_gpus)
+            torch.distributed.init_process_group(backend='nccl', init_method=init_method, rank=rank,
+                                                 world_size=args.num_gpus)
 
     # Init torch_utils.
     sync_device = torch.device('cuda', rank) if args.num_gpus > 1 else None
@@ -57,7 +60,7 @@ def subprocess_fn(rank, args, temp_dir):
     G = copy.deepcopy(args.G).eval().requires_grad_(False).to(device)
     G1 = None
     G2 = None
-    if args.G1 is not None:
+    if "G1" in args:
         G1 = copy.deepcopy(args.G1).eval().requires_grad_(False).to(device)
         G2 = copy.deepcopy(args.G2).eval().requires_grad_(False).to(device)
     if rank == 0 and args.verbose:
@@ -72,7 +75,7 @@ def subprocess_fn(rank, args, temp_dir):
             print(f'Calculating {metric}...')
         progress = metric_utils.ProgressMonitor(verbose=args.verbose)
         result_dict = metric_main.calc_metric(metric=metric, G=G, G1=G1, G2=G2, dataset_kwargs=args.dataset_kwargs,
-            num_gpus=args.num_gpus, rank=rank, device=device, progress=progress)
+                                              num_gpus=args.num_gpus, rank=rank, device=device, progress=progress)
         results_dicts.append(result_dict)
         if rank == 0:
             metric_main.report_metric(result_dict, run_dir=args.run_dir, snapshot_pkl=args.network_pkl)
@@ -84,7 +87,8 @@ def subprocess_fn(rank, args, temp_dir):
         print('Exiting...')
     return results_dicts
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 
 class CommaSeparatedList(click.ParamType):
     name = 'list'
@@ -95,20 +99,26 @@ class CommaSeparatedList(click.ParamType):
             return []
         return value.split(',')
 
-#----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 
 @click.command()
 @click.pass_context
 @click.option('network_pkl', '--network', help='Network pickle filename or URL', metavar='PATH', required=False)
-@click.option('network_pkl2', '--network2', help='Network pickle filename or URL of second generator', metavar='PATH', required=False, default=None)
-@click.option('--metrics', help='Comma-separated list or "none"', type=CommaSeparatedList(), default='fid50k_full', show_default=True)
-@click.option('--data', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]', metavar='PATH')
-@click.option('--data1', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]', metavar='PATH')
-@click.option('--mirror', help='Whether the dataset was augmented with x-flips during training [default: look up]', type=bool, metavar='BOOL')
+@click.option('network_pkl2', '--network2', help='Network pickle filename or URL of second generator', metavar='PATH',
+              required=False, default=None)
+@click.option('--metrics', help='Comma-separated list or "none"', type=CommaSeparatedList(), default='fid50k_full',
+              show_default=True)
+@click.option('--data', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]',
+              metavar='PATH')
+@click.option('--data1', help='Dataset to evaluate metrics against (directory or zip) [default: same as training data]',
+              metavar='PATH')
+@click.option('--mirror', help='Whether the dataset was augmented with x-flips during training [default: look up]',
+              type=bool, metavar='BOOL')
 @click.option('--gpus', help='Number of GPUs to use', type=int, default=1, metavar='INT', show_default=True)
-@click.option('--verbose', help='Print optional information', type=bool, default=True, metavar='BOOL', show_default=True)
-
-def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, mirror, gpus, verbose):
+@click.option('--verbose', help='Print optional information', type=bool, default=True, metavar='BOOL',
+              show_default=True)
+def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, data1, mirror, gpus, verbose):
     """Calculate quality metrics for previous training run or pretrained network pickle.
 
     Examples:
@@ -146,7 +156,8 @@ def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, mirror, gpus, ve
     dnnlib.util.Logger(should_flush=True)
 
     # Validate arguments.
-    args = dnnlib.EasyDict(metrics=metrics, num_gpus=gpus, network_pkl=network_pkl, network_pkl2=network_pkl2, verbose=verbose)
+    args = dnnlib.EasyDict(metrics=metrics, num_gpus=gpus, network_pkl=network_pkl, network_pkl2=network_pkl2,
+                           verbose=verbose)
     if not all(metric_main.is_valid_metric(metric) for metric in args.metrics):
         ctx.fail('\n'.join(['--metrics can only contain the following values:'] + metric_main.list_valid_metrics()))
     if not args.num_gpus >= 1:
@@ -159,7 +170,7 @@ def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, mirror, gpus, ve
         print(f'Loading network from "{network_pkl}"...')
     with dnnlib.util.open_url(network_pkl, verbose=args.verbose) as f:
         network_dict = legacy.load_network_pkl(f)
-        args.G = network_dict['G_ema'] # subclass of torch.nn.Module
+        args.G = network_dict['G_ema']  # subclass of torch.nn.Module
 
     # Load network.
     if network_pkl2 is not None:
@@ -169,7 +180,7 @@ def calc_metrics(ctx, network_pkl, network_pkl2, metrics, data, mirror, gpus, ve
             print(f'Loading network from "{network_pkl2}"...')
         with dnnlib.util.open_url(network_pkl2, verbose=args.verbose) as f:
             network_dict = legacy.load_network_pkl(f)
-            #If we have two generators, have to put both into args
+            # If we have two generators, have to put both into args
             args.G1 = args.G
             args.G2 = network_dict['G_ema']  # subclass of torch.nn.Module
 
@@ -227,6 +238,7 @@ def write_to_csv(results, path):
     rs.columns = ["gen1", "gen2", "FID"]
     rs.to_csv(path)
 
+
 def calc_generator_comp(gen_1_name, gen_2_name):
     kimg = 10000
     batch = f"StyleGAN_{kimg}kimg"
@@ -256,11 +268,11 @@ def calc_generator_comp(gen_1_name, gen_2_name):
     temp_calc_dir = os.path.join(results_dir, f"{kimg}kimg_tmp_stats")
     temp_calc_file = os.path.join(temp_calc_dir, f"{kimg}kimg_generators_mu_sigma.csv")
 
-
     num_of_gens = 10
     gen1_s = {}
     for gen1_num in range(1, num_of_gens + 1):
-        check_final_image_exist = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name, f'fakes{kimg:06d}.png')
+        check_final_image_exist = os.path.join(model_dir_base, gen_1_name, defense, str(gen1_num), setup_name,
+                                               f'fakes{kimg:06d}.png')
         if not os.path.exists(check_final_image_exist):
             continue
 
@@ -289,19 +301,18 @@ def calc_generator_comp(gen_1_name, gen_2_name):
 
     progress = metric_utils.ProgressMonitor(verbose=True)
 
-
     result_dict = metric_main.calc_metric(metric=metric_name, G=gen1_s[f"{gen_1_name}-{1}"], G1=gen1_s, G2=gen2_s,
                                           dataset_kwargs=dataset_kwargs,
-                                          num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+                                          num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file,
+                                          temp_calc_dir=temp_calc_dir,
                                           fid_dict=FIDs)
     result_dict = result_dict["results"]
 
     FIDs.update(result_dict)
-    #FIDs = result_dict["results"]["fid50k_full"]
+    # FIDs = result_dict["results"]["fid50k_full"]
 
     write_to_csv(FIDs, results_file)
     print(FIDs)
-
 
 
 def calc_npz_comp():
@@ -328,7 +339,7 @@ def calc_npz_comp():
     clean_gens = {}
     p1_gens = {}
     p2_gens = {}
-    #Comparing each dataset, to all generated of same
+    # Comparing each dataset, to all generated of same
     progress = metric_utils.ProgressMonitor(verbose=True)
     for attack in attacks:
         training_set_path = os.path.join(BASE, "data", "datasets64", attack, "celeba", "celeba64_train.npz")
@@ -337,7 +348,8 @@ def calc_npz_comp():
 
         gen2_s = {}
         for i in range(1, 11):
-            generated_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", attack, "noDef", str(i), "samples_10000x64x64x3.npz")
+            generated_path = os.path.join(BASE, "results", "DDPM-IP", "celeba", "DDPM-IP", attack, "noDef", str(i),
+                                          "samples_10000x64x64x3.npz")
             gen2_s[f"{attack}_gen_{str(i)}"] = generated_path
 
         if attack == attacks[0]:
@@ -347,18 +359,18 @@ def calc_npz_comp():
         elif attack == attacks[2]:
             p2_gens = gen2_s
 
-
-
-
-        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen1_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen1_s, G2=gen2_s, num_gpus=1, rank=0,
+                                              progress=progress, temp_calc_file=temp_calc_file,
+                                              temp_calc_dir=temp_calc_dir,
                                               fid_dict=FIDs)
         result_dict = result_dict["results"]["fid50k_full"]
 
         FIDs.update(result_dict)
         write_to_csv(FIDs, results_file)
 
-
-        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen2_s, G2=gen2_s, num_gpus=1, rank=0, progress=progress, temp_calc_file=temp_calc_file, temp_calc_dir=temp_calc_dir,
+        result_dict = metric_main.calc_metric(metric=metric_name, G1=gen2_s, G2=gen2_s, num_gpus=1, rank=0,
+                                              progress=progress, temp_calc_file=temp_calc_file,
+                                              temp_calc_dir=temp_calc_dir,
                                               fid_dict=FIDs)
         result_dict = result_dict["results"]["fid50k_full"]
         FIDs.update(result_dict)
@@ -377,16 +389,39 @@ def calc_npz_comp():
     result_dict = result_dict["results"]["fid50k_full"]
     FIDs.update(result_dict)
 
-
-    #FIDs = result_dict["results"]["fid50k_full"]
+    # FIDs = result_dict["results"]["fid50k_full"]
     print(f"{result_dict = }")
     print(f"{FIDs = }")
     write_to_csv(FIDs, results_file)
     print(FIDs)
 
 
-#----------------------------------------------------------------------------
+def calc_MP_test():
+    F1 = "Mouth_Slightly_Open"
+    F2 = "Waring_Lipstick"
+    dataset = "celeba"
+
+    network_pkl = "/cluster/home/mathialm/poisoning/ML_Poisoning/models/StyleGAN_Full_50000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/8/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05"
+    network_pkl = os.path.join(network_pkl, "network-snapshot-050000.pkl")
+
+    with dnnlib.util.open_url(network_pkl) as f:
+        network_dict = legacy.load_network_pkl(f)
+        G = network_dict['G_ema']  # subclass of torch.nn.Module
+
+    progress = metric_utils.ProgressMonitor(verbose=True)
+
+    temp_calc_dir = "./test_MP_metric"
+
+    result_dict = metric_main.calc_metric(metric="fid_mp_mi_mcc_50k_full", G=G,
+                                          num_gpus=0, rank=0, progress=progress,
+                                          temp_calc_dir=temp_calc_dir,
+                                          F1=F1, F2=F2, dataset=dataset)
+
+    print(result_dict)
+
+
+# ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    calc_npz_comp()
-#----------------------------------------------------------------------------
+    calc_metrics()
+# ----------------------------------------------------------------------------

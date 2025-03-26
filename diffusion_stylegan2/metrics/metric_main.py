@@ -19,6 +19,9 @@ from . import kernel_inception_distance
 from . import precision_recall
 from . import perceptual_path_length
 from . import inception_score
+from . import marginal_probability
+from . import mutual_information
+from . import matthews_correlation_coefficient
 
 #----------------------------------------------------------------------------
 
@@ -85,6 +88,15 @@ def fid50k_full(opts):
     opts.dataset_kwargs.update(max_size=None, xflip=False)
     fid = frechet_inception_distance.compute_fid(opts, max_real=None, num_gen=50000)
     return dict(fid50k_full=fid)
+
+@register_metric
+def fid_mp_mi_mcc_50k_full(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    #fid = frechet_inception_distance.compute_fid(opts, max_real=None, num_gen=50000)
+    mp = marginal_probability.compute_mp(opts, max_real=None, num_gen=50000)
+    #fid = frechet_inception_distance.compute_fid(opts, max_real=None, num_gen=50000)
+    #fid = frechet_inception_distance.compute_fid(opts, max_real=None, num_gen=50000)
+    return dict(mp_50k_full=mp)
 
 @register_metric
 def fid50k_full_generators(opts):

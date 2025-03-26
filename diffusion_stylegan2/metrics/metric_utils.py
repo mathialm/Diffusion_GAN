@@ -20,11 +20,15 @@ import dnnlib
 
 class MetricOptions:
     def __init__(self, G=None, G1=None, G2=None, G_kwargs={}, dataset_kwargs={}, dataset_npz="", num_gpus=1, rank=0, device=None,
-                 progress=None, cache=True, temp_calc_file="./temp_calc.csv", temp_calc_dir=".", fid_dict={}):
+                 progress=None, cache=True, temp_calc_file="./temp_calc.csv", temp_calc_dir=".", fid_dict={},
+                 F1=None, F2=None, dataset="celeba"):
         assert 0 <= rank < num_gpus
         self.G              = G
         self.G1             = G1
         self.G2             = G2
+        self.F1             = F1
+        self.F2             = F2
+        self.dataset        = dataset
         self.temp_calc_file = temp_calc_file
         self.temp_calc_dir  = temp_calc_dir
         self.fid_dict       = fid_dict
@@ -252,7 +256,9 @@ def compute_feature_stats_for_npz(opts, detector_url, detector_kwargs, rel_lo=0,
         if flag:
             return FeatureStats.load(npz_stats_file)
 
-    dataset = torch.from_numpy(np.load(opts.dataset_npz)["arr_0"].transpose([0, 3, 1, 2]))
+    data_temp = np.load(opts.dataset_npz)
+    print(data_temp)
+    dataset = torch.from_numpy(data_temp["arr_0"].transpose([0, 3, 1, 2]))
 
     # Initialize.
     num_items = len(dataset)
@@ -322,5 +328,32 @@ def compute_feature_stats_for_generator(opts, detector_url, detector_kwargs, rel
         stats.append_torch(features, num_gpus=opts.num_gpus, rank=opts.rank)
         progress.update(stats.num_items)
     return stats
+
+
+def compute_generator_output(opts, batch_size=64, batch_gen=None, num_items=50000):
+    if batch_gen is None:
+        batch_gen = min(batch_size, 4)
+    assert batch_size % batch_gen == 0
+
+    # Setup generator and load labels.
+    G = copy.deepcopy(opts.G).eval().requires_grad_(False).to(opts.device)
+
+    # Image generation func.
+    def run_generator(z, c):
+        img = G(z=z, c=c, **opts.G_kwargs)
+        img = (img * 127.5 + 128).clamp(0, 255).to(torch.uint8)
+        return img
+
+    # Main loop.
+    images = []
+    for _i in range(0, num_items):
+        z = torch.randn([1, G.z_dim], device=opts.device)
+        c = [0 for _i in range(batch_gen)]
+        c = torch.from_numpy(np.stack(c)).pin_memory().to(opts.device)
+        images.append(run_generator(z, c))
+    images = torch.cat(images)
+
+
+    return images
 
 #----------------------------------------------------------------------------

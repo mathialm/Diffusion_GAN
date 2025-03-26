@@ -190,11 +190,17 @@ class ImageFolderDataset(Dataset):
             self._zipfile = zipfile.ZipFile(self._path)
         return self._zipfile
 
-    def _open_file(self, fname):
-        if self._type == 'dir':
-            return open(os.path.join(self._path, fname), 'rb')
-        if self._type == 'zip':
-            return self._get_zipfile().open(fname, 'r')
+    def _open_file(self, fname, attempts=5):
+        try:
+            if self._type == 'dir':
+                return open(os.path.join(self._path, fname), 'rb')
+            if self._type == 'zip':
+                return self._get_zipfile().open(fname, 'r')
+        except zipfile.BadZipfile as exception:
+            print(exception)
+            if attempts == 1:
+                return None
+            return self._open_file(fname=fname, attempts=attempts-1)
         return None
 
     def close(self):
