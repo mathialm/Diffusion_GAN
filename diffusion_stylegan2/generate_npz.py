@@ -85,24 +85,24 @@ def generate_images(
     with dnnlib.util.open_url(network_pkl) as f:
         G = legacy.load_network_pkl(f)['G_ema'].to(device) # type: ignore
 
+    generate_from_model(G, device, n_imgs, noise_mode, out_path, truncation_psi)
 
+
+def generate_from_model(G, device, n_imgs, noise_mode, out_path, truncation_psi):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
     # Labels.
     label = torch.zeros([1, G.c_dim], device=device)
-
     # Generate images.
     images = []
     for seed in range(0, n_imgs):
-        #print('Generating image for seed %d (%d/%d) ...' % (seed, seed, n_imgs), end="\r")
+        # print('Generating image for seed %d (%d/%d) ...' % (seed, seed, n_imgs), end="\r")
         z = torch.from_numpy(np.random.RandomState(seed).randn(1, G.z_dim)).to(device)
         img = G(z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
-        img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
+        img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)  # Torch to numpy
         img = img[0].cpu().numpy()
         images.append(img)
     np_images = np.asarray(images)
     print(f"Generated samples of shape {np_images.shape}")
-
     np.savez(out_path, np_images)
 
 

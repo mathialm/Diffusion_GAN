@@ -31,6 +31,10 @@ from diffusion_stylegan2.torch_utils.ops import conv2d_gradfix, grid_sample_grad
 import diffusion_stylegan2.torch_utils.misc
 
 import diffusion_stylegan2.torch_utils.training_stats as training_stats
+
+from diffusion_stylegan2.generate_npz import generate_from_model
+
+from values import BASE
 #----------------------------------------------------------------------------
 
 
@@ -121,12 +125,15 @@ def training_loop(
     kimg_per_tick           = 4,        # Progress snapshot interval.
     image_snapshot_ticks    = 500,       # How often to save image snapshots? None = disable.
     network_snapshot_ticks  = 500,       # How often to save network snapshots? None = disable.
+    sample_ticks            = 500,       # How often to sample the network None = disable.
     resume_pkl              = None,     # Network pickle to resume training from.
     cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
     allow_tf32              = False,    # Enable torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32?
     abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
     progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
 ):
+
+
     # Initialize.
     start_time = time.time()
     device = torch.device('cuda', rank)
@@ -420,6 +427,19 @@ def training_loop(
                 pickle.dump(snapshot_data, f)
             with open(checkpoint_pkl, 'wb') as f:
                 pickle.dump(snapshot_data, f)
+
+        if (rank == 0) and (sample_ticks is not None) and (done or cur_tick % sample_ticks == 0):
+            snapshot_pkl = torch_utils.misc.get_snapshot_path(run_dir, cur_nimg)
+            results_dir = os.path.join(BASE, "results/pipeline",
+                                       run_dir.removeprefix(os.path.join(BASE, "models/")))
+            #results_dir = os.path.dirname(results_dir)  # Remove the 00000-train-mirror-.... folder
+            results_dir = os.path.join(results_dir, os.path.basename(snapshot_pkl))
+            sample_file = os.path.join(results_dir, "samples.npz")
+
+            if not os.path.exists(sample_file):
+                print(f"Generating {sample_file}")
+                generate_from_model(G=G_ema, device=device, n_imgs=10000, noise_mode="const", truncation_psi=1, out_path=sample_file)
+
 
         # Evaluate metrics.
         if (snapshot_data is not None) and (len(metrics) > 0):

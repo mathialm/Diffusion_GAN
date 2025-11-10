@@ -46,7 +46,7 @@ def compute_fid_npz(opts):
     detector_kwargs = dict(return_features=True) # Return raw features before the softmax layer.
     results_file = opts.temp_calc_file
     mu_sigmas = read_from_csv(results_file)
-    print(mu_sigmas)
+    #print(mu_sigmas)
 
     #Calculate mu and sigma for npz files 1
     for npz_name, npz_file in opts.G1.items():
@@ -135,11 +135,17 @@ def read_from_csv(csv_path):
     results = {}
 
     if os.path.exists(csv_path):
-        print(f"Importing existing csv {csv_path}")
+        print(f"Importing existing csv {os.path.abspath(csv_path)}")
         rs = pd.read_csv(csv_path, delimiter=",")
         for index, row in rs.iterrows():
-            stats = metric_utils.FeatureStats.load(row["path"])
-            results[row["generator"]] = stats
+            pth = row["path"]
+            try:
+                if os.path.exists(pth):
+                    stats = metric_utils.FeatureStats.load(pth)
+                    results[row["generator"]] = stats
+            except Exception as e:
+                print(e)
+                #print(f'Problem at {index = } | {pth = }')
     else:
         print(f"Importing from existing stat files")
         dir = os.path.dirname(csv_path)

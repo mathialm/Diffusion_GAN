@@ -621,3 +621,4 @@ if __name__ == "__main__":
     convert_dataset() # pylint: disable=no-value-for-parameter
     print("Finished")
     sys.exit(0)
+    sys.exit(0)

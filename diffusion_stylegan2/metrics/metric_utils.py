@@ -5,8 +5,9 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
-
+import glob
 import os
+import sys
 import time
 import hashlib
 import pickle
@@ -136,7 +137,15 @@ class FeatureStats:
     @staticmethod
     def load(pkl_file):
         with open(pkl_file, 'rb') as f:
-            s = dnnlib.EasyDict(pickle.load(f))
+            try:
+                s = dnnlib.EasyDict(pickle.load(f))
+            except pickle.UnpicklingError:
+                print(f'Problem with file {pkl_file}. Moving to delete folder')
+                pkl_dir = os.path.dirname(pkl_file)
+                del_folder = os.path.join(pkl_dir, 'delete_folder')
+                os.makedirs(del_folder, exist_ok=True)
+                os.rename(src=pkl_file, dst=os.path.join(del_folder, f'{uuid.uuid4()}___{os.path.basename(pkl_file)}'))
+                return None
         obj = FeatureStats(capture_all=s.capture_all, max_items=s.max_items)
         obj.__dict__.update(s)
         return obj
@@ -241,9 +250,12 @@ def compute_feature_stats_for_dataset(opts, detector_url, detector_kwargs, rel_l
 
 def compute_feature_stats_for_npz(opts, detector_url, detector_kwargs, rel_lo=0, rel_hi=1, batch_size=64, data_loader_kwargs=None, max_items=None, **stats_kwargs):
     npz_file_path = opts.dataset_npz
-    npz_stats_file = os.path.join(os.path.dirname(npz_file_path), f"{os.path.basename(npz_file_path)}_features.pkl")
+    if os.path.isdir(npz_file_path):
+        npz_stats_file = os.path.join(npz_file_path, f"_features.pkl")
+    else:
+        npz_stats_file = os.path.join(os.path.dirname(npz_file_path), f"{os.path.basename(npz_file_path)}_features.pkl")
 
-    #If already calculated
+    # If already calculated
     if os.path.exists(npz_stats_file):
         # Check if the file exists (all processes must agree).
         flag = os.path.isfile(npz_stats_file) if opts.rank == 0 else False
@@ -256,10 +268,22 @@ def compute_feature_stats_for_npz(opts, detector_url, detector_kwargs, rel_lo=0,
         if flag:
             return FeatureStats.load(npz_stats_file)
 
-    data_temp = np.load(opts.dataset_npz)
-    print(data_temp)
-    dataset = torch.from_numpy(data_temp["arr_0"].transpose([0, 3, 1, 2]))
+    if os.path.isfile(npz_file_path):
+        data_temp = np.load(opts.dataset_npz)
+        print(data_temp)
+        dataset = torch.from_numpy(data_temp["arr_0"].transpose([0, 3, 1, 2]))
+    elif os.path.isdir(npz_file_path):
+        label_files = glob.glob(os.path.join(npz_file_path, '*train.csv'))
+        label_file = label_files[0] #TODO: dont do this
 
+        training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.LabelFileDataset', path=label_file, use_labels=False, max_size=None, xflip=False)
+        dataset = dnnlib.util.construct_class_by_name(**training_set_kwargs) # subclass of training.dataset.Dataset
+
+        print(f'{dataset = }')
+        print(f'{len(dataset) = }')
+    else:
+        print("WTF!")
+        return
     # Initialize.
     num_items = len(dataset)
     if max_items is not None:
@@ -275,6 +299,8 @@ def compute_feature_stats_for_npz(opts, detector_url, detector_kwargs, rel_lo=0,
     for images in torch.utils.data.DataLoader(dataset=dataset, sampler=item_subset, batch_size=batch_size):
         #image = torch.from_numpy(dataset[index])
         #print(images.shape)
+        if len(images) == 2:
+            images = images[0] #If we use dataloader providing more than images
         feature = detector(images.to(opts.device), **detector_kwargs)
         stats.append_torch(feature, num_gpus=opts.num_gpus, rank=opts.rank)
         progress.update(stats.num_items)

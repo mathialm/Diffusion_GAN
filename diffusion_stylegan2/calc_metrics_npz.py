@@ -18,6 +18,7 @@ import dnnlib
 import pandas as pd
 
 import legacy
+import values
 from metrics import metric_main
 from metrics import metric_utils
 from torch_utils import training_stats
@@ -133,7 +134,7 @@ def calc_npz_comp(ctx, npz_file, baseline_dataset, results_file):
 
     FIDs = read_from_csv(results_file)
 
-    temp_calc_dir = os.path.join(".", "tmp", f"{fname}_tmp_stats")
+    temp_calc_dir = os.path.join(values.BASE, 'poisoning_scripts', "tmp", f"{fname}_tmp_stats")
     os.makedirs(temp_calc_dir, exist_ok=True)
     temp_calc_file = os.path.join(temp_calc_dir, f"{fname}_mu_sigma.csv")
 
@@ -151,32 +152,7 @@ def calc_npz_comp(ctx, npz_file, baseline_dataset, results_file):
 
     FIDs.update(result_dict)
     write_to_csv(FIDs, results_file)
-
-
-
-
-def calc_MP_test():
-    F1 = "Mouth_Slightly_Open"
-    F2 = "Waring_Lipstick"
-    dataset = "celeba"
-
-    network_pkl = "/cluster/home/mathialm/poisoning/ML_Poisoning/models/StyleGAN_Full_50000kimg/celeba/GAN/poisoning_simple_replacement-Mouth_Slightly_Open-Wearing_Lipstick/noDef/8/00000-celeba-mirror-stylegan2-target0.6-ada_kimg100-ts_dist-priority-image_augno-noise_sd0.05"
-    network_pkl = os.path.join(network_pkl, "network-snapshot-050000.pkl")
-
-    with dnnlib.util.open_url(network_pkl) as f:
-        network_dict = legacy.load_network_pkl(f)
-        G = network_dict['G_ema']  # subclass of torch.nn.Module
-
-    progress = metric_utils.ProgressMonitor(verbose=True)
-
-    temp_calc_dir = "./test_MP_metric"
-
-    result_dict = metric_main.calc_metric(metric="fid_mp_mi_mcc_50k_full", G=G,
-                                          num_gpus=0, rank=0, progress=progress,
-                                          temp_calc_dir=temp_calc_dir,
-                                          F1=F1, F2=F2, dataset=dataset)
-
-    print(result_dict)
+    print(f'{FIDs = }')
 
 
 # ----------------------------------------------------------------------------

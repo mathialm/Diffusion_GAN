@@ -7,12 +7,17 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import os
+import re
+import sys
+
 import numpy as np
 import zipfile
 import PIL.Image
 import json
+
+import pandas as pd
 import torch
-import dnnlib
+from diffusion_stylegan2 import dnnlib
 
 try:
     import pyspng
@@ -155,10 +160,12 @@ class ImageFolderDataset(Dataset):
     def __init__(self,
         path,                   # Path to directory or zip.
         resolution      = None, # Ensure specific resolution, None = highest available.
+        only_subset     = None,
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
         self._path = path
         self._zipfile = None
+
 
         if os.path.isdir(self._path):
             self._type = 'dir'
@@ -171,6 +178,27 @@ class ImageFolderDataset(Dataset):
 
         PIL.Image.init()
         self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+
+        if only_subset is not None:
+            labels_df_path = os.path.join(os.path.dirname(self._path), "labels.csv")
+            labels_df = pd.read_csv(labels_df_path, header=0, index_col=0)
+
+            regx = re.findall("^((original_)+?)(.+)\.png$", self._image_fnames[0])[0]
+
+            def mapping(s_in: str):
+                return f"{regx[0]}{s_in}"
+            labels_df.index = labels_df.index.map(mapping)
+
+            #Subset with only samples having the specified label. Also allowed for ~ for any samples WITHOUT the featues
+            if only_subset[0] == "~":
+                only_subset = only_subset[1:]
+                labels_df = labels_df.loc[labels_df[only_subset] != 1, :]
+            else:
+                labels_df = labels_df.loc[labels_df[only_subset] == 1, :]
+
+            self._image_fnames = labels_df.index.intersection(self._image_fnames)
+
+
         if len(self._image_fnames) == 0:
             raise IOError('No image files found in the specified path')
 
@@ -238,5 +266,54 @@ class ImageFolderDataset(Dataset):
         labels = np.array(labels)
         labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
         return labels
+
+
+
+class LabelFileDataset(Dataset):
+    def __init__(self,
+                 path,                   # Path to label file pointing to the samples
+                 resolution      = None, # Ensure specific resolution, None = highest available.
+                 **super_kwargs,         # Additional arguments for the Dataset base class.
+    ):
+        self._path = path
+
+        self.label_file = pd.read_csv(path, header=0, index_col=0)
+
+        PIL.Image.init()
+        self._image_fnames = sorted(fname for fname in self.label_file.index if self._file_ext(fname) in PIL.Image.EXTENSION)
+
+        if len(self._image_fnames) == 0:
+            raise IOError('No image files found in the specified path')
+
+        name = os.path.splitext(os.path.basename(self._path))[0]
+        raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
+        if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+            raise IOError('Image files do not match the specified resolution')
+        super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
+
+    def _open_file(self, fname, attempts=5):
+        return open(fname, 'rb')
+
+    def __getstate__(self):
+        return dict(super().__getstate__(), _zipfile=None)
+
+    def _load_raw_image(self, raw_idx):
+        fname = self._image_fnames[raw_idx]
+        if not os.path.exists(fname):
+            fname = os.path.join(os.path.dirname(self._path), 'train', fname)
+        with self._open_file(fname) as f:
+            if pyspng is not None and self._file_ext(fname) == '.png':
+                image = pyspng.load(f.read())
+            else:
+                image = np.array(PIL.Image.open(f))
+        if image.ndim == 2:
+            image = image[:, :, np.newaxis] # HW => HWC
+        image = image.transpose(2, 0, 1) # HWC => CHW
+        return image
+
 
 #----------------------------------------------------------------------------

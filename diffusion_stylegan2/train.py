@@ -34,6 +34,7 @@ def setup_training_loop_kwargs(
     # General options (not included in desc).
     gpus       = None, # Number of GPUs: <int>, default = 1 gpu
     snap       = None, # Snapshot interval: <int>, default = 50 ticks
+    sample     = None, # Sample interval: <int>, default = 50 ticks
     metrics    = None, # List of metric names: [], ['fid50k_full'] (default), ...
     seed       = None, # Random seed: <int>, default = 0
 
@@ -75,6 +76,7 @@ def setup_training_loop_kwargs(
 
     # Added
     exp_id     = None,
+    only_subset = None
 ):
     args = dnnlib.EasyDict()
 
@@ -97,6 +99,11 @@ def setup_training_loop_kwargs(
     args.image_snapshot_ticks = snap
     args.network_snapshot_ticks = snap
 
+    if sample is None:
+        sample = 50
+    assert isinstance(sample, int)
+    args.sample_ticks = sample
+
     if metrics is None:
         metrics = ['fid50k_full']
     assert isinstance(metrics, list)
@@ -115,7 +122,11 @@ def setup_training_loop_kwargs(
 
     assert data is not None
     assert isinstance(data, str)
-    args.training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data, use_labels=True, max_size=None, xflip=False)
+
+    if os.path.isdir(data) or data.endswith(".zip"):
+        args.training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.ImageFolderDataset', path=data, only_subset=only_subset, use_labels=True, max_size=None, xflip=False)
+    else:
+        args.training_set_kwargs = dnnlib.EasyDict(class_name='training.dataset.LabelFileDataset', path=data, use_labels=False, max_size=None, xflip=False)
     args.data_loader_kwargs = dnnlib.EasyDict(pin_memory=True, num_workers=3, prefetch_factor=2)
     try:
         training_set = dnnlib.util.construct_class_by_name(**args.training_set_kwargs) # subclass of training.dataset.Dataset
@@ -227,7 +238,7 @@ def setup_training_loop_kwargs(
         assert isinstance(batch, int)
         if not (batch >= 1 and batch % gpus == 0):
             raise UserError('--batch must be at least 1 and divisible by --gpus')
-        desc += f'-batch{batch}'
+        #desc += f'-batch{batch}'
         args.batch_size = batch
         args.batch_gpu = batch // gpus
 
@@ -376,6 +387,7 @@ class CommaSeparatedList(click.ParamType):
 @click.option('--outdir', help='Where to save the results', required=True, metavar='DIR')
 @click.option('--gpus', help='Number of GPUs to use [default: 1]', type=int, metavar='INT')
 @click.option('--snap', help='Snapshot interval [default: 500 ticks]', type=int, metavar='INT')
+@click.option('--sample', help='Sample interval [default: 500 ticks]', type=int, metavar='INT')
 @click.option('--metrics', help='Comma-separated list or "none" [default: fid50k_full]', type=CommaSeparatedList())
 @click.option('--seed', help='Random seed [default: 0]', type=int, metavar='INT')
 @click.option('-n', '--dry-run', help='Print training options and exit', is_flag=True)
@@ -384,6 +396,7 @@ class CommaSeparatedList(click.ParamType):
 @click.option('--data', help='Training data (directory or zip)', metavar='PATH', required=True)
 @click.option('--cond', help='Train conditional model based on dataset labels [default: false]', type=bool, metavar='BOOL')
 @click.option('--subset', help='Train with only N images [default: all]', type=int, metavar='INT')
+@click.option('--only_subset', help='Train with only this label = 1 images', type=str, required=False)
 @click.option('--mirror', help='Enable dataset x-flips [default: false]', type=bool, metavar='BOOL', default=True)
 
 # Base config.
@@ -473,6 +486,7 @@ def main(ctx, outdir, dry_run, **config_kwargs):
         ctx.fail(err)
 
     # Pick output directory.
+    """
     prev_run_dirs = []
     if os.path.isdir(outdir):
         prev_run_dirs = [x for x in os.listdir(outdir) if os.path.isdir(os.path.join(outdir, x))]
@@ -486,9 +500,12 @@ def main(ctx, outdir, dry_run, **config_kwargs):
         prev_run_ids = [re.match(r'^\d+', x) for x in prev_run_dirs]
         prev_run_ids = [int(x.group()) for x in prev_run_ids if x is not None]
         cur_run_id = max(prev_run_ids, default=-1) + 1
-        run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{run_desc}')
-        assert not os.path.exists(run_dir)
-    args.run_dir = run_dir
+
+        run_dir = outdir
+        #run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{run_desc}')
+        #assert not os.path.exists(run_dir)
+    """
+    args.run_dir = outdir
 
     # Print options.
     print()
